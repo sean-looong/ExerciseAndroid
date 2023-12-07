@@ -1,10 +1,10 @@
 package com.seanlooong.exerciseandroid.ui.sensor
 
 import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
 import com.seanlooong.exerciseandroid.databinding.ActivityCameraBinding
+import com.seanlooong.exerciseandroid.ui.base.ImmersiveActivity
 
-class CameraXActivity : AppCompatActivity() {
+class CameraXActivity : ImmersiveActivity() {
 
     private lateinit var binding: ActivityCameraBinding
 
