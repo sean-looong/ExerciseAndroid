@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/camerax_basic_navigation"
+    app:startDestination="@id/camera_permission_fragment">
+
+    <fragment
+        android:id="@+id/camera_permission_fragment"
+        android:name="com.seanlooong.exerciseandroid.ui.camera.CameraPermissionsFragment"
+        android:label="CameraPermissionFragment" >
+        <action
+            android:id="@+id/action_permission_to_camera"
+            app:destination="@id/camerax_fragment"
+            app:popUpTo="@id/camera_permission_fragment"
+            app:popUpToInclusive="true"/>
+    </fragment>
+
+    <fragment
+        android:id="@+id/camerax_fragment"
+        android:name="com.seanlooong.exerciseandroid.ui.camera.CameraXFragment"
+        android:label="Camerax_fragment" >
+        <action
+            android:id="@+id/action_camerax_fragment_to_camera_permission_fragment"
+            app:destination="@id/camera_permission_fragment" />
+        <action
+            android:id="@+id/action_camerax_fragment_to_gallery_fragment"
+            app:destination="@id/gallery_fragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/gallery_fragment"
+        android:name="com.seanlooong.exerciseandroid.ui.camera.GalleryFragment"
+        android:label="gallery_fragment" >
+        <argument
+            android:name="root_directory"
+            app:argType="string" />
+    </fragment>
+</navigation>

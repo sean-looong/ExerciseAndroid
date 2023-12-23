@@ -2,6 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Declare Features -->
+    <uses-feature android:name="android.hardware.camera" />
+    <!-- Declare Permission -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -24,7 +29,7 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".ui.sensor.CameraXActivity"
+        <activity android:name=".ui.camera.CameraXActivity"
             android:theme="@style/Theme.ExerciseAndroid.NoActionBar">
         </activity>
     </application>

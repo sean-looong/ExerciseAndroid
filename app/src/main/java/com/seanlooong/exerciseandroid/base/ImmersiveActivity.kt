@@ -1,16 +1,13 @@
-package com.seanlooong.exerciseandroid.ui.base
+package com.seanlooong.exerciseandroid.base
 
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Color
-import android.os.Build
-import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
-import android.view.WindowInsets
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat

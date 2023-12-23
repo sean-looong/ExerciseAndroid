@@ -10,9 +10,8 @@ import androidx.navigation.ui.navigateUp
 import androidx.navigation.ui.setupActionBarWithNavController
 import androidx.navigation.ui.setupWithNavController
 import androidx.drawerlayout.widget.DrawerLayout
-import androidx.appcompat.app.AppCompatActivity
 import com.seanlooong.exerciseandroid.databinding.ActivityMainBinding
-import com.seanlooong.exerciseandroid.ui.base.ImmersiveActivity
+import com.seanlooong.exerciseandroid.base.ImmersiveActivity
 
 class MainActivity : ImmersiveActivity() {
 
@@ -39,7 +38,7 @@ class MainActivity : ImmersiveActivity() {
         // menu should be considered as top level destinations.
         appBarConfiguration = AppBarConfiguration(
             setOf(
-                R.id.nav_home, R.id.nav_gallery, R.id.nav_slideshow, R.id.nav_sensor
+                R.id.nav_home, R.id.nav_slideshow, R.id.nav_camera
             ), drawerLayout
         )
         setupActionBarWithNavController(navController, appBarConfiguration)

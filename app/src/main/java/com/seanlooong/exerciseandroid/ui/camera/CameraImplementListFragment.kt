@@ -1,4 +1,4 @@
-package com.seanlooong.exerciseandroid.ui.sensor
+package com.seanlooong.exerciseandroid.ui.camera
 
 import android.content.Intent
 import android.os.Bundle
@@ -6,11 +6,11 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
-import com.seanlooong.exerciseandroid.databinding.FragmentSensorBinding
+import com.seanlooong.exerciseandroid.databinding.FragmentCameraImplementListBinding
 
-class SensorFragment : Fragment() {
+class CameraImplementListFragment : Fragment() {
 
-    private var _binding: FragmentSensorBinding? = null
+    private var _binding: FragmentCameraImplementListBinding? = null
 
     // This property is only valid between onCreateView and
     // onDestroyView.
@@ -21,14 +21,14 @@ class SensorFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentSensorBinding.inflate(inflater, container, false)
+        _binding = FragmentCameraImplementListBinding.inflate(inflater, container, false)
         return binding.root
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         // 跳转到CameraXActivity
-        _binding?.textSensor?.setOnClickListener{
+        _binding?.cameraxBasic?.setOnClickListener{
             requireActivity().startActivity(
                     Intent(
                         requireActivity(),
