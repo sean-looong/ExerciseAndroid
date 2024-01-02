@@ -1,4 +1,4 @@
-package com.seanlooong.exerciseandroid.ui.camera
+package com.seanlooong.exerciseandroid.modules.camera
 
 import android.Manifest
 import android.content.Context

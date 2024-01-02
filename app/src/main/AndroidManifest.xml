@@ -29,7 +29,7 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".ui.camera.CameraXActivity"
+        <activity android:name=".modules.camera.CameraXActivity"
             android:theme="@style/Theme.ExerciseAndroid.NoActionBar">
         </activity>
     </application>

@@ -3,11 +3,13 @@ package com.seanlooong.exerciseandroid.utils
 import android.os.Build
 import android.view.DisplayCutout
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.Window
 import android.view.WindowManager
 import android.widget.ImageButton
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -48,6 +50,26 @@ fun View.padWithDisplayCutout() {
     setOnApplyWindowInsetsListener { _, insets ->
         insets.displayCutout?.let { doPadding(it) }
         insets
+    }
+}
+
+/**
+ * Apply the action when this view is attached to the window and has been measured.
+ * If the view is already attached and measured then the action is immediately invoked.
+ *
+ * @param action The action to apply when the view is laid out
+ */
+fun View.doOnLaidOut(action: () -> Unit) {
+    if (isAttachedToWindow && ViewCompat.isLaidOut(this)) {
+        action()
+    } else {
+        viewTreeObserver.addOnGlobalLayoutListener(object :
+            ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                viewTreeObserver.removeOnGlobalLayoutListener(this)
+                action()
+            }
+        })
     }
 }
 

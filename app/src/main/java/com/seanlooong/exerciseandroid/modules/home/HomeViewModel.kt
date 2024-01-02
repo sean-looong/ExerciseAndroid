@@ -1,4 +1,4 @@
-package com.seanlooong.exerciseandroid.ui.home
+package com.seanlooong.exerciseandroid.modules.home
 
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData

@@ -1,4 +1,4 @@
-package com.seanlooong.exerciseandroid.ui.camera
+package com.seanlooong.exerciseandroid.modules.camera
 
 import android.os.Bundle
 import android.view.LayoutInflater

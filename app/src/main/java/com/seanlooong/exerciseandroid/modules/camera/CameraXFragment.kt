@@ -1,4 +1,4 @@
-package com.seanlooong.exerciseandroid.ui.camera
+package com.seanlooong.exerciseandroid.modules.camera
 
 import android.content.BroadcastReceiver
 import android.content.ContentValues
@@ -29,6 +29,7 @@ import androidx.camera.core.ImageCapture.OnImageSavedCallback
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.extensions.ExtensionMode
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.concurrent.futures.await
 import androidx.fragment.app.Fragment
@@ -79,6 +80,15 @@ class CameraXFragment : Fragment() {
     private val displayManager by lazy {
         requireContext().getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
     }
+
+    private val extensionName = mapOf(
+        ExtensionMode.AUTO to R.string.camera_mode_auto,
+        ExtensionMode.NIGHT to R.string.camera_mode_night,
+        ExtensionMode.HDR to R.string.camera_mode_hdr,
+        ExtensionMode.FACE_RETOUCH to R.string.camera_mode_face_retouch,
+        ExtensionMode.BOKEH to R.string.camera_mode_bokeh,
+        ExtensionMode.NONE to R.string.camera_mode_none,
+    )
 
     /** Blocking camera operations are performed using this executor */
     private lateinit var cameraExecutor: ExecutorService

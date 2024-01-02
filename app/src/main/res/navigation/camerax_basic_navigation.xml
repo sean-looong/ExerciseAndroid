@@ -7,7 +7,7 @@
 
     <fragment
         android:id="@+id/camera_permission_fragment"
-        android:name="com.seanlooong.exerciseandroid.ui.camera.CameraPermissionsFragment"
+        android:name="com.seanlooong.exerciseandroid.modules.camera.CameraPermissionsFragment"
         android:label="CameraPermissionFragment" >
         <action
             android:id="@+id/action_permission_to_camera"
@@ -18,7 +18,7 @@
 
     <fragment
         android:id="@+id/camerax_fragment"
-        android:name="com.seanlooong.exerciseandroid.ui.camera.CameraXFragment"
+        android:name="com.seanlooong.exerciseandroid.modules.camera.CameraXFragment"
         android:label="Camerax_fragment" >
         <action
             android:id="@+id/action_camerax_fragment_to_camera_permission_fragment"
@@ -30,7 +30,7 @@
 
     <fragment
         android:id="@+id/gallery_fragment"
-        android:name="com.seanlooong.exerciseandroid.ui.camera.GalleryFragment"
+        android:name="com.seanlooong.exerciseandroid.modules.camera.GalleryFragment"
         android:label="gallery_fragment" >
         <argument
             android:name="root_directory"

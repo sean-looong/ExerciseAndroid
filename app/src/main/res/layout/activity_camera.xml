@@ -10,7 +10,7 @@
     android:keepScreenOn="true"
     app:defaultNavHost="true"
     app:navGraph="@navigation/camerax_basic_navigation"
-    tools:context=".ui.camera.CameraXActivity"
+    tools:context=".modules.camera.CameraXActivity"
     android:fitsSystemWindows="true"
     android:background="@color/teal_200">
 
