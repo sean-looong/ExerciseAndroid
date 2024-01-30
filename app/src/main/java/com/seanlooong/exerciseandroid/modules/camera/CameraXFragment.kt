@@ -12,8 +12,12 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.util.TypedValue
+import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
@@ -23,15 +27,22 @@ import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraInfoUnavailableException
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.CameraState
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCapture.OnImageSavedCallback
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.MeteringPoint
 import androidx.camera.core.Preview
 import androidx.camera.extensions.ExtensionMode
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.concurrent.futures.await
+import androidx.core.view.GestureDetectorCompat
+import androidx.core.view.isVisible
+import androidx.dynamicanimation.animation.DynamicAnimation
+import androidx.dynamicanimation.animation.SpringAnimation
+import androidx.dynamicanimation.animation.SpringForce
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -43,6 +54,7 @@ import com.bumptech.glide.request.RequestOptions
 import com.seanlooong.exerciseandroid.R
 import com.seanlooong.exerciseandroid.databinding.CameraUiContainerBinding
 import com.seanlooong.exerciseandroid.databinding.FragmentCameraBinding
+import com.seanlooong.exerciseandroid.modules.camera.ui.FocusPointDrawable
 import com.seanlooong.exerciseandroid.utils.ANIMATION_FAST_MILLIS
 import com.seanlooong.exerciseandroid.utils.ANIMATION_SLOW_MILLIS
 import com.seanlooong.exerciseandroid.utils.MediaStoreUtils
@@ -63,7 +75,7 @@ typealias LumaListener = (luma: Double) -> Unit
 class CameraXFragment : Fragment() {
 
     private lateinit var _binding: FragmentCameraBinding
-    private val fragmentCameraBinding get() = _binding!!
+    private val fragmentCameraBinding get() = _binding
     private var cameraUiContainerBinding: CameraUiContainerBinding? = null
     private lateinit var broadcastManager: LocalBroadcastManager
     private lateinit var mediaStoreUtils: MediaStoreUtils
@@ -80,15 +92,6 @@ class CameraXFragment : Fragment() {
     private val displayManager by lazy {
         requireContext().getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
     }
-
-    private val extensionName = mapOf(
-        ExtensionMode.AUTO to R.string.camera_mode_auto,
-        ExtensionMode.NIGHT to R.string.camera_mode_night,
-        ExtensionMode.HDR to R.string.camera_mode_hdr,
-        ExtensionMode.FACE_RETOUCH to R.string.camera_mode_face_retouch,
-        ExtensionMode.BOKEH to R.string.camera_mode_bokeh,
-        ExtensionMode.NONE to R.string.camera_mode_none,
-    )
 
     /** Blocking camera operations are performed using this executor */
     private lateinit var cameraExecutor: ExecutorService
@@ -126,7 +129,7 @@ class CameraXFragment : Fragment() {
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
+    ): View {
         _binding = FragmentCameraBinding.inflate(inflater, container, false)
         return _binding.root
     }
@@ -189,7 +192,7 @@ class CameraXFragment : Fragment() {
         cameraUiContainerBinding?.root?.let {
             fragmentCameraBinding.root.removeView(it)
         }
-
+        // 将camera_ui_container和camerax_fragment绑定
         cameraUiContainerBinding = CameraUiContainerBinding.inflate(
             LayoutInflater.from(requireContext()),
             fragmentCameraBinding.root,
@@ -238,10 +241,8 @@ class CameraXFragment : Fragment() {
                             val savedUri = output.savedUri
                             Log.d(TAG, "Photo capture succeeded: $savedUri")
                             // We can only change the foreground Drawable using API level 23+ API
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                // Update the gallery thumbnail with latest picture taken
-                                setGalleryThumbnail(savedUri.toString())
-                            }
+                            // Update the gallery thumbnail with latest picture taken
+                            setGalleryThumbnail(savedUri.toString())
                             // Implicit broadcasts will be ignored for devices running API level >= 24
                             // so if you only target API level 24+ you can remove this statement
                             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
@@ -257,7 +258,6 @@ class CameraXFragment : Fragment() {
 
                 // We can only change the foreground Drawable using API level 23+ API
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-
                     // Display flash animation to indicate that photo was captured
                     fragmentCameraBinding.root.postDelayed({
                         fragmentCameraBinding.root.foreground = ColorDrawable(Color.WHITE)
@@ -298,6 +298,43 @@ class CameraXFragment : Fragment() {
                     )
                 }
             }
+        }
+
+        val gestureDetector = GestureDetectorCompat(requireContext(), object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
+                val meteringPointFactory = fragmentCameraBinding.viewFinder.meteringPointFactory
+                val focusPoint = meteringPointFactory.createPoint(e.x, e.y)
+                lifecycleScope.launch {
+                    focus(focusPoint)
+                }
+                cameraUiContainerBinding?.focusPoint?.let { showFocusPoint(it, e.x, e.y) }
+                return true
+            }
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                return true
+            }
+        })
+
+        val scaleGestureDetector = ScaleGestureDetector(
+            requireContext(),
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    lifecycleScope.launch {
+                        scale(detector.scaleFactor)
+                    }
+                    return true
+                }
+            })
+
+        fragmentCameraBinding.viewFinder.setOnTouchListener { _, event ->
+            var didConsume = scaleGestureDetector.onTouchEvent(event)
+            if (!scaleGestureDetector.isInProgress) {
+                didConsume = gestureDetector.onTouchEvent(event)
+            }
+            didConsume
         }
     }
 
@@ -441,33 +478,23 @@ class CameraXFragment : Fragment() {
                 when (cameraState.type) {
                     CameraState.Type.PENDING_OPEN -> {
                         // Ask the user to close other camera apps
-                        Toast.makeText(context,
-                            "CameraState: Pending Open",
-                            Toast.LENGTH_SHORT).show()
+                        Log.d(TAG, "CameraState: Pending Open")
                     }
                     CameraState.Type.OPENING -> {
                         // Show the Camera UI
-                        Toast.makeText(context,
-                            "CameraState: Opening",
-                            Toast.LENGTH_SHORT).show()
+                        Log.d(TAG, "CameraState: Opening")
                     }
                     CameraState.Type.OPEN -> {
                         // Setup Camera resources and begin processing
-                        Toast.makeText(context,
-                            "CameraState: Open",
-                            Toast.LENGTH_SHORT).show()
+                        Log.d(TAG, "CameraState: Open")
                     }
                     CameraState.Type.CLOSING -> {
                         // Close camera UI
-                        Toast.makeText(context,
-                            "CameraState: Closing",
-                            Toast.LENGTH_SHORT).show()
+                        Log.d(TAG, "CameraState: Closing")
                     }
                     CameraState.Type.CLOSED -> {
                         // Free camera resources
-                        Toast.makeText(context,
-                            "CameraState: Closed",
-                            Toast.LENGTH_SHORT).show()
+                        Log.d(TAG, "CameraState: Closed")
                     }
                 }
             }
@@ -543,6 +570,52 @@ class CameraXFragment : Fragment() {
             return AspectRatio.RATIO_4_3
         }
         return AspectRatio.RATIO_16_9
+    }
+
+    private fun showFocusPoint(view: View, x: Float, y: Float) {
+        val drawable = FocusPointDrawable()
+        val strokeWidth = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            3f,
+            resources.displayMetrics
+        )
+        drawable.setStrokeWidth(strokeWidth)
+
+        val alphaAnimation = SpringAnimation(view, DynamicAnimation.ALPHA, 1f).apply {
+            spring.stiffness = SPRING_STIFFNESS
+            spring.dampingRatio = SPRING_DAMPING_RATIO
+
+            addEndListener { _, _, _, _ ->
+                SpringAnimation(view, DynamicAnimation.ALPHA, 0f)
+                    .apply {
+                        spring.stiffness = SPRING_STIFFNESS_ALPHA_OUT
+                        spring.dampingRatio = SpringForce.DAMPING_RATIO_NO_BOUNCY
+                    }
+                    .start()
+            }
+        }
+        val scaleAnimationX = SpringAnimation(view, DynamicAnimation.SCALE_X, 1f).apply {
+            spring.stiffness = SPRING_STIFFNESS
+            spring.dampingRatio = SPRING_DAMPING_RATIO
+        }
+        val scaleAnimationY = SpringAnimation(view, DynamicAnimation.SCALE_Y, 1f).apply {
+            spring.stiffness = SPRING_STIFFNESS
+            spring.dampingRatio = SPRING_DAMPING_RATIO
+        }
+
+        view.apply {
+            this.background = drawable
+            this.isVisible = true
+            this.translationX = x - width / 2f
+            this.translationY = y - height / 2f
+            this.alpha = 0f
+            this.scaleX = 1.5f
+            this.scaleY = 1.5f
+        }
+
+        alphaAnimation.start()
+        scaleAnimationX.start()
+        scaleAnimationY.start()
     }
 
     /**
@@ -627,11 +700,28 @@ class CameraXFragment : Fragment() {
         }
     }
 
+    fun focus(meteringPoint: MeteringPoint) {
+        val camera = camera ?: return
+
+        val meteringAction = FocusMeteringAction.Builder(meteringPoint).build()
+        camera.cameraControl.startFocusAndMetering(meteringAction)
+    }
+
+    fun scale(scaleFactor: Float) {
+        val camera = camera ?: return
+        val currentZoomRatio: Float = camera.cameraInfo.zoomState.value?.zoomRatio ?: 1f
+        camera.cameraControl.setZoomRatio(scaleFactor * currentZoomRatio)
+    }
+
     companion object {
         private const val TAG = "CameraXBasic"
         private const val FILENAME = "yyyy-MM-dd-HH-mm-ss-SSS"
         private const val PHOTO_TYPE = "image/jpeg"
         private const val RATIO_4_3_VALUE = 4.0 / 3.0
         private const val RATIO_16_9_VALUE = 16.0 / 9.0
+        // animation constants for focus point
+        private const val SPRING_STIFFNESS_ALPHA_OUT = 100f
+        private const val SPRING_STIFFNESS = 800f
+        private const val SPRING_DAMPING_RATIO = 0.35f
     }
 }
