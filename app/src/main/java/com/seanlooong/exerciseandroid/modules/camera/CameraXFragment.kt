@@ -29,15 +29,18 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.CameraState
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageAnalysis.COORDINATE_SYSTEM_ORIGINAL
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCapture.OnImageSavedCallback
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.MeteringPoint
 import androidx.camera.core.Preview
-import androidx.camera.extensions.ExtensionMode
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.mlkit.vision.MlKitAnalyzer
+import androidx.camera.view.CameraController.COORDINATE_SYSTEM_VIEW_REFERENCED
 import androidx.concurrent.futures.await
+import androidx.core.content.ContextCompat
 import androidx.core.view.GestureDetectorCompat
 import androidx.core.view.isVisible
 import androidx.dynamicanimation.animation.DynamicAnimation
@@ -51,10 +54,16 @@ import androidx.window.layout.WindowInfoTracker
 import androidx.window.layout.WindowMetricsCalculator
 import com.bumptech.glide.Glide
 import com.bumptech.glide.request.RequestOptions
+import com.google.mlkit.vision.barcode.BarcodeScanner
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
 import com.seanlooong.exerciseandroid.R
 import com.seanlooong.exerciseandroid.databinding.CameraUiContainerBinding
 import com.seanlooong.exerciseandroid.databinding.FragmentCameraBinding
 import com.seanlooong.exerciseandroid.modules.camera.ui.FocusPointDrawable
+import com.seanlooong.exerciseandroid.modules.camera.ui.QrCodeDrawable
+import com.seanlooong.exerciseandroid.modules.camera.viewModel.QrCodeViewModel
 import com.seanlooong.exerciseandroid.utils.ANIMATION_FAST_MILLIS
 import com.seanlooong.exerciseandroid.utils.ANIMATION_SLOW_MILLIS
 import com.seanlooong.exerciseandroid.utils.MediaStoreUtils
@@ -95,6 +104,7 @@ class CameraXFragment : Fragment() {
 
     /** Blocking camera operations are performed using this executor */
     private lateinit var cameraExecutor: ExecutorService
+    private lateinit var barcodeScanner: BarcodeScanner
 
     /** Volume down button receiver used to trigger shutter */
     private val volumeDownReceiver = object : BroadcastReceiver() {
@@ -140,6 +150,11 @@ class CameraXFragment : Fragment() {
         // Initialize our background executor
         cameraExecutor = Executors.newSingleThreadExecutor()
 
+        val barcodeOptions = BarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .build()
+        barcodeScanner = BarcodeScanning.getClient(barcodeOptions)
+
         broadcastManager = LocalBroadcastManager.getInstance(view.context)
 
         // Set up the intent filter that will receive events from our main activity
@@ -180,10 +195,6 @@ class CameraXFragment : Fragment() {
                 CameraXFragmentDirections.actionCameraxFragmentToCameraPermissionFragment()
             )
         }
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
     }
 
     /** Method used to re-draw the camera UI controls, called every time configuration changes. */
@@ -281,6 +292,8 @@ class CameraXFragment : Fragment() {
                 } else {
                     CameraSelector.LENS_FACING_FRONT
                 }
+
+                updateAnalyzerButtons()
                 // Re-bind use cases to update selected camera
                 bindCameraUseCases()
             }
@@ -298,6 +311,11 @@ class CameraXFragment : Fragment() {
                     )
                 }
             }
+        }
+
+        cameraUiContainerBinding?.qrcodeCheckbox?.setOnCheckedChangeListener { _, checked ->
+            checkQrCodeButton(checked)
+            bindCameraUseCases()
         }
 
         val gestureDetector = GestureDetectorCompat(requireContext(), object : GestureDetector.SimpleOnGestureListener() {
@@ -365,6 +383,8 @@ class CameraXFragment : Fragment() {
             else -> throw IllegalStateException("Back and front camera are unavailable")
         }
 
+        // Enable or disable analyzer buttons
+        updateAnalyzerButtons()
         // Enable or disable switching between cameras
         updateCameraSwitchButton()
 
@@ -379,6 +399,21 @@ class CameraXFragment : Fragment() {
         } catch (exception: CameraInfoUnavailableException) {
             cameraUiContainerBinding?.cameraSwitchButton?.isEnabled = false
         }
+    }
+
+    private fun updateAnalyzerButtons() {
+        when (lensFacing) {
+            CameraSelector.LENS_FACING_BACK -> cameraUiContainerBinding?.qrcodeCheckbox?.isEnabled = true
+            else -> cameraUiContainerBinding?.qrcodeCheckbox?.isEnabled = false
+        }
+    }
+
+    // 控制qrcode开关
+    private fun checkQrCodeButton(checked: Boolean) {
+        cameraUiContainerBinding?.qrcodeCheckbox?.alpha = if (checked) 1f else 0.3f
+        cameraUiContainerBinding?.cameraSwitchButton?.visibility = if (checked) View.GONE else View.VISIBLE
+        cameraUiContainerBinding?.cameraCaptureButton?.visibility = if (checked) View.GONE else View.VISIBLE
+        cameraUiContainerBinding?.photoViewButton?.visibility = if (checked) View.GONE else View.VISIBLE
     }
 
     /** Returns true if the device has an available back camera. False otherwise */
@@ -428,6 +463,44 @@ class CameraXFragment : Fragment() {
             .setTargetRotation(rotation)
             .build()
 
+        val normalAnalyzer = LuminosityAnalyzer { luma ->
+            // Values returned from our analyzer are passed to the attached listener
+            // We log image analysis results here - you should do something useful
+            // instead!
+            Log.d(TAG, "Average luminosity: $luma")
+        }
+
+        val qrcodeAnalyzer = MlKitAnalyzer(listOf(barcodeScanner),
+            COORDINATE_SYSTEM_ORIGINAL, // COORDINATE_SYSTEM_VIEW_REFERENCED
+            ContextCompat.getMainExecutor(requireContext())
+        ) { result: MlKitAnalyzer.Result? ->
+            val barcodeResults = result?.getValue(barcodeScanner)
+            if ((barcodeResults == null) ||
+                (barcodeResults.size == 0) ||
+                (barcodeResults.first() == null)
+            ) {
+                fragmentCameraBinding.viewFinder.overlay.clear()
+                fragmentCameraBinding.viewFinder.setOnTouchListener { _, _ -> false } //no-op
+                return@MlKitAnalyzer
+            }
+
+            val qrCodeViewModel = QrCodeViewModel(barcodeResults[0])
+            val qrCodeDrawable = QrCodeDrawable(qrCodeViewModel)
+
+            fragmentCameraBinding.viewFinder.setOnTouchListener(qrCodeViewModel.qrCodeTouchCallback)
+            fragmentCameraBinding.viewFinder.overlay.clear()
+            fragmentCameraBinding.viewFinder.overlay.add(qrCodeDrawable)
+        }
+
+        val aiAnalyzer = LuminosityAnalyzer() {
+
+        }
+
+        var analyzer: ImageAnalysis.Analyzer = normalAnalyzer
+        if (cameraUiContainerBinding?.qrcodeCheckbox?.isChecked == true) {
+            analyzer = qrcodeAnalyzer
+        }
+
         // ImageAnalysis
         imageAnalyzer = ImageAnalysis.Builder()
             // We request aspect ratio but no resolution
@@ -438,12 +511,7 @@ class CameraXFragment : Fragment() {
             .build()
             // The analyzer can then be assigned to the instance
             .also {
-                it.setAnalyzer(cameraExecutor, LuminosityAnalyzer { luma ->
-                    // Values returned from our analyzer are passed to the attached listener
-                    // We log image analysis results here - you should do something useful
-                    // instead!
-                    Log.d(TAG, "Average luminosity: $luma")
-                })
+                it.setAnalyzer(cameraExecutor, analyzer)
             }
 
         // Must unbind the use-cases before rebinding them

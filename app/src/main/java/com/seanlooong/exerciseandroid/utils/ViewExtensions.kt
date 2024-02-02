@@ -1,6 +1,8 @@
 package com.seanlooong.exerciseandroid.utils
 
+import android.content.res.Resources
 import android.os.Build
+import android.util.TypedValue
 import android.view.DisplayCutout
 import android.view.View
 import android.view.ViewTreeObserver
@@ -112,4 +114,8 @@ private fun hideSystemUI(window: Window) {
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = fullscreenFlags
     }
+}
+
+fun dp2px(dp: Float): Float {
+    return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, Resources.getSystem().displayMetrics);
 }
