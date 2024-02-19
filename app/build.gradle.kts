@@ -73,4 +73,8 @@ dependencies {
     kapt("com.github.bumptech.glide:compiler:4.11.0")
     // barcode 二维码扫描
     implementation("com.google.mlkit:barcode-scanning:17.1.0")
+    // Tensorflow lite dependencies
+    implementation("org.tensorflow:tensorflow-lite:2.9.0")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.9.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.2")
 }

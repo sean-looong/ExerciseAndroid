@@ -14,15 +14,15 @@ import com.google.mlkit.vision.barcode.common.Barcode
  * As is, this class only handles displaying the QR Code data if it's a URL. Other data types
  * can be handled by adding more cases of Barcode.TYPE_URL in the init block.
  */
-class QrCodeViewModel(barcode: Barcode) {
-    var boundingRect: Rect = barcode.boundingBox!!
+class QrCodeViewModel(bounding: Rect, content: String, valueType: Int) {
+    var boundingRect: Rect = bounding
     var qrContent: String = ""
     var qrCodeTouchCallback = { _: View, _: MotionEvent -> false} //no-op
 
     init {
-        when (barcode.valueType) {
+        when (valueType) {
             Barcode.TYPE_URL -> {
-                qrContent = barcode.url!!.url!!
+                qrContent = content
                 qrCodeTouchCallback = { v: View, e: MotionEvent ->
                     if (e.action == MotionEvent.ACTION_DOWN && boundingRect.contains(e.x.toInt(), e.y.toInt())) {
                         val openBrowserIntent = Intent(Intent.ACTION_VIEW)
@@ -35,7 +35,7 @@ class QrCodeViewModel(barcode: Barcode) {
             // Add other QR Code types here to handle other types of data,
             // like Wifi credentials.
             else -> {
-                qrContent = "Unsupported data type: ${barcode.rawValue.toString()}"
+                qrContent = "Unsupported data type: $content"
             }
         }
     }

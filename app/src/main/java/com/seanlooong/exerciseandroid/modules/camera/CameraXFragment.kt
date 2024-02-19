@@ -5,13 +5,17 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.util.Size
 import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.KeyEvent
@@ -19,6 +23,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.View.OnTouchListener
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.camera.core.AspectRatio
@@ -61,6 +66,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.seanlooong.exerciseandroid.R
 import com.seanlooong.exerciseandroid.databinding.CameraUiContainerBinding
 import com.seanlooong.exerciseandroid.databinding.FragmentCameraBinding
+import com.seanlooong.exerciseandroid.modules.camera.helper.ObjectDetectionHelper
 import com.seanlooong.exerciseandroid.modules.camera.ui.FocusPointDrawable
 import com.seanlooong.exerciseandroid.modules.camera.ui.QrCodeDrawable
 import com.seanlooong.exerciseandroid.modules.camera.viewModel.QrCodeViewModel
@@ -69,6 +75,16 @@ import com.seanlooong.exerciseandroid.utils.ANIMATION_SLOW_MILLIS
 import com.seanlooong.exerciseandroid.utils.MediaStoreUtils
 import com.seanlooong.exerciseandroid.utils.simulateClick
 import kotlinx.coroutines.launch
+import org.tensorflow.lite.DataType
+import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.nnapi.NnApiDelegate
+import org.tensorflow.lite.support.common.FileUtil
+import org.tensorflow.lite.support.common.ops.NormalizeOp
+import org.tensorflow.lite.support.image.ImageProcessor
+import org.tensorflow.lite.support.image.TensorImage
+import org.tensorflow.lite.support.image.ops.ResizeOp
+import org.tensorflow.lite.support.image.ops.ResizeWithCropOrPadOp
+import org.tensorflow.lite.support.image.ops.Rot90Op
 import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -97,6 +113,7 @@ class CameraXFragment : Fragment() {
     private var camera: Camera? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private lateinit var windowManager: WindowInfoTracker
+    private lateinit var defaultScreenTouchListener: OnTouchListener
 
     private val displayManager by lazy {
         requireContext().getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
@@ -133,6 +150,47 @@ class CameraXFragment : Fragment() {
                 imageAnalyzer?.targetRotation = view.display.rotation
             }
         } ?: Unit
+    }
+
+    private lateinit var bitmapBuffer: Bitmap
+    private var pauseAnalysis = true
+    private var imageRotationDegrees: Int = 0
+    private val tfImageBuffer = TensorImage(DataType.UINT8)
+    private var frameCounter = 0
+    private var lastFpsTimestamp = System.currentTimeMillis()
+
+    private val tfImageProcessor by lazy {
+        val cropSize = minOf(bitmapBuffer.width, bitmapBuffer.height)
+        ImageProcessor.Builder()
+            .add(ResizeWithCropOrPadOp(cropSize, cropSize))
+            .add(ResizeOp(
+                tfInputSize.height, tfInputSize.width, ResizeOp.ResizeMethod.NEAREST_NEIGHBOR))
+            .add(Rot90Op(-imageRotationDegrees / 90))
+            .add(NormalizeOp(0f, 1f))
+            .build()
+    }
+
+    private val nnApiDelegate by lazy  {
+        NnApiDelegate()
+    }
+
+    private val tflite by lazy {
+        Interpreter(
+            FileUtil.loadMappedFile(requireContext(), MODEL_PATH),
+            Interpreter.Options().addDelegate(nnApiDelegate))
+    }
+
+    private val detector by lazy {
+        ObjectDetectionHelper(
+            tflite,
+            FileUtil.loadLabels(requireContext(), LABELS_PATH)
+        )
+    }
+
+    private val tfInputSize by lazy {
+        val inputIndex = 0
+        val inputShape = tflite.getInputTensor(inputIndex).shape()
+        Size(inputShape[2], inputShape[1]) // Order of axis is: {1, height, width, 3}
     }
 
     override fun onCreateView(
@@ -195,6 +253,13 @@ class CameraXFragment : Fragment() {
                 CameraXFragmentDirections.actionCameraxFragmentToCameraPermissionFragment()
             )
         }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        // Release TFLite resources.
+        tflite.close()
+        nnApiDelegate.close()
     }
 
     /** Method used to re-draw the camera UI controls, called every time configuration changes. */
@@ -314,7 +379,20 @@ class CameraXFragment : Fragment() {
         }
 
         cameraUiContainerBinding?.qrcodeCheckbox?.setOnCheckedChangeListener { _, checked ->
+            if (checked) {
+                cameraUiContainerBinding?.aiCheckbox?.isChecked = false
+                checkAIButton(false)
+            }
             checkQrCodeButton(checked)
+            bindCameraUseCases()
+        }
+
+        cameraUiContainerBinding?.aiCheckbox?.setOnCheckedChangeListener {_, checked ->
+            if (checked) {
+                cameraUiContainerBinding?.qrcodeCheckbox?.isChecked = false
+                checkQrCodeButton(false)
+            }
+            checkAIButton(checked)
             bindCameraUseCases()
         }
 
@@ -347,13 +425,15 @@ class CameraXFragment : Fragment() {
                 }
             })
 
-        fragmentCameraBinding.viewFinder.setOnTouchListener { _, event ->
+        defaultScreenTouchListener = OnTouchListener { _: View, event: MotionEvent ->
             var didConsume = scaleGestureDetector.onTouchEvent(event)
             if (!scaleGestureDetector.isInProgress) {
                 didConsume = gestureDetector.onTouchEvent(event)
             }
             didConsume
         }
+
+        fragmentCameraBinding.viewFinder.setOnTouchListener(defaultScreenTouchListener)
     }
 
     private fun setGalleryThumbnail(filename: String) {
@@ -411,6 +491,18 @@ class CameraXFragment : Fragment() {
     // 控制qrcode开关
     private fun checkQrCodeButton(checked: Boolean) {
         cameraUiContainerBinding?.qrcodeCheckbox?.alpha = if (checked) 1f else 0.3f
+        cameraUiContainerBinding?.cameraSwitchButton?.visibility = if (checked) View.GONE else View.VISIBLE
+        cameraUiContainerBinding?.cameraCaptureButton?.visibility = if (checked) View.GONE else View.VISIBLE
+        cameraUiContainerBinding?.photoViewButton?.visibility = if (checked) View.GONE else View.VISIBLE
+        if (!checked) {
+            fragmentCameraBinding.viewFinder.setOnTouchListener(defaultScreenTouchListener)
+        }
+    }
+
+    // 控制ai开关
+    private fun checkAIButton(checked: Boolean) {
+        pauseAnalysis = !checked
+        cameraUiContainerBinding?.aiCheckbox?.alpha = if (checked) 1f else 0.3f
         cameraUiContainerBinding?.cameraSwitchButton?.visibility = if (checked) View.GONE else View.VISIBLE
         cameraUiContainerBinding?.cameraCaptureButton?.visibility = if (checked) View.GONE else View.VISIBLE
         cameraUiContainerBinding?.photoViewButton?.visibility = if (checked) View.GONE else View.VISIBLE
@@ -484,7 +576,11 @@ class CameraXFragment : Fragment() {
                 return@MlKitAnalyzer
             }
 
-            val qrCodeViewModel = QrCodeViewModel(barcodeResults[0])
+            val barcode = barcodeResults[0]
+            val qrCodeViewModel = QrCodeViewModel(
+                barcode.boundingBox!!,
+                if (barcode.valueType == Barcode.TYPE_URL) barcode.url!!.url!! else barcode.rawValue.toString(),
+                barcode.valueType)
             val qrCodeDrawable = QrCodeDrawable(qrCodeViewModel)
 
             fragmentCameraBinding.viewFinder.setOnTouchListener(qrCodeViewModel.qrCodeTouchCallback)
@@ -492,14 +588,58 @@ class CameraXFragment : Fragment() {
             fragmentCameraBinding.viewFinder.overlay.add(qrCodeDrawable)
         }
 
-        val aiAnalyzer = LuminosityAnalyzer() {
+        val aiAnalyzer = ImageAnalysis.Analyzer {image ->
+            if (!::bitmapBuffer.isInitialized) {
+                // The image rotation and RGB image buffer are initialized only once
+                // the analyzer has started running
+                imageRotationDegrees = image.imageInfo.rotationDegrees
+                bitmapBuffer = Bitmap.createBitmap(
+                    image.width, image.height, Bitmap.Config.ARGB_8888)
+            }
 
+            // Early exit: image analysis is in paused state
+            if (pauseAnalysis) {
+                image.close()
+                return@Analyzer
+            }
+
+            // Copy out RGB bits to our shared buffer
+            image.use { bitmapBuffer.copyPixelsFromBuffer(image.planes[0].buffer)  }
+
+            // Process the image in Tensorflow
+            val tfImage =  tfImageProcessor.process(tfImageBuffer.apply { load(bitmapBuffer) })
+
+            // Perform the object detection for the current frame
+            val predictions = detector.predict(tfImage)
+
+            // Report only the top prediction
+            reportPrediction(predictions.maxByOrNull { it.score })
+
+            // Compute the FPS of the entire pipeline
+            val frameCount = 10
+            if (++frameCounter % frameCount == 0) {
+                frameCounter = 0
+                val now = System.currentTimeMillis()
+                val delta = now - lastFpsTimestamp
+                val fps = 1000 * frameCount.toFloat() / delta
+                Log.d(TAG, "FPS: ${"%.02f".format(fps)} with tensorSize: ${tfImage.width} x ${tfImage.height}")
+                lastFpsTimestamp = now
+            }
         }
 
         var analyzer: ImageAnalysis.Analyzer = normalAnalyzer
         if (cameraUiContainerBinding?.qrcodeCheckbox?.isChecked == true) {
             analyzer = qrcodeAnalyzer
+        } else if (cameraUiContainerBinding?.aiCheckbox?.isChecked == true) {
+            frameCounter = 0
+            lastFpsTimestamp = System.currentTimeMillis()
+            analyzer = aiAnalyzer
         }
+
+        val outputImageFormat = if (cameraUiContainerBinding?.aiCheckbox?.isChecked == true)
+                ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888
+            else
+                ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888
 
         // ImageAnalysis
         imageAnalyzer = ImageAnalysis.Builder()
@@ -508,6 +648,8 @@ class CameraXFragment : Fragment() {
             // Set initial target rotation, we will have to call this again if rotation changes
             // during the lifecycle of this use case
             .setTargetRotation(rotation)
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setOutputImageFormat(outputImageFormat)
             .build()
             // The analyzer can then be assigned to the instance
             .also {
@@ -533,6 +675,11 @@ class CameraXFragment : Fragment() {
             observeCameraState(camera?.cameraInfo!!)
         } catch (exc: Exception) {
             Log.e(TAG, "Use case binding failed", exc)
+        }
+
+        // 清理二维码或ai识别弹窗
+        fragmentCameraBinding.viewFinder.post {
+            fragmentCameraBinding.viewFinder.overlay.clear()
         }
     }
 
@@ -781,6 +928,80 @@ class CameraXFragment : Fragment() {
         camera.cameraControl.setZoomRatio(scaleFactor * currentZoomRatio)
     }
 
+    private fun reportPrediction(
+        prediction: ObjectDetectionHelper.ObjectPrediction?
+    ) = fragmentCameraBinding.viewFinder.post {
+
+        // Early exit: if prediction is not good enough, don't report it
+        if (prediction == null || prediction.score < ACCURACY_THRESHOLD) {
+            return@post
+        }
+
+        // Location has to be mapped to our local coordinates
+        val location = mapOutputCoordinates(prediction.location)
+
+        // Update the text and UI
+        val content = "${"%.2f".format(prediction.score)} ${prediction.label}"
+        val boxRect = Rect(location.left.toInt(), location.top.toInt(),
+            location.left.toInt() + min(fragmentCameraBinding.viewFinder.width, location.right.toInt() - location.left.toInt()),
+            location.top.toInt() + min(fragmentCameraBinding.viewFinder.height, location.bottom.toInt() - location.top.toInt()))
+
+        val qrCodeViewModel = QrCodeViewModel(boxRect, content, Barcode.TYPE_TEXT)
+        val qrCodeDrawable = QrCodeDrawable(qrCodeViewModel)
+
+        fragmentCameraBinding.viewFinder.overlay.clear()
+        fragmentCameraBinding.viewFinder.overlay.add(qrCodeDrawable)
+    }
+
+
+    /**
+     * Helper function used to map the coordinates for objects coming out of
+     * the model into the coordinates that the user sees on the screen.
+     */
+    private fun mapOutputCoordinates(location: RectF): RectF {
+
+        // Step 1: map location to the preview coordinates
+        val previewLocation = RectF(
+            location.left * fragmentCameraBinding.viewFinder.width,
+            location.top * fragmentCameraBinding.viewFinder.height,
+            location.right * fragmentCameraBinding.viewFinder.width,
+            location.bottom * fragmentCameraBinding.viewFinder.height
+        )
+
+        // Step 2: compensate for camera sensor orientation and mirroring
+        val isFrontFacing = lensFacing == CameraSelector.LENS_FACING_FRONT
+        val correctedLocation = if (isFrontFacing) {
+            RectF(
+                fragmentCameraBinding.viewFinder.width - previewLocation.right,
+                previewLocation.top,
+                fragmentCameraBinding.viewFinder.width - previewLocation.left,
+                previewLocation.bottom)
+        } else {
+            previewLocation
+        }
+
+        // Step 3: compensate for 1:1 to 4:3 aspect ratio conversion + small margin
+        val margin = 0.1f
+        val requestedRatio = 4f / 3f
+        val midX = (correctedLocation.left + correctedLocation.right) / 2f
+        val midY = (correctedLocation.top + correctedLocation.bottom) / 2f
+        return if (fragmentCameraBinding.viewFinder.width < fragmentCameraBinding.viewFinder.height) {
+            RectF(
+                midX - (1f + margin) * requestedRatio * correctedLocation.width() / 2f,
+                midY - (1f - margin) * correctedLocation.height() / 2f,
+                midX + (1f + margin) * requestedRatio * correctedLocation.width() / 2f,
+                midY + (1f - margin) * correctedLocation.height() / 2f
+            )
+        } else {
+            RectF(
+                midX - (1f - margin) * correctedLocation.width() / 2f,
+                midY - (1f + margin) * requestedRatio * correctedLocation.height() / 2f,
+                midX + (1f - margin) * correctedLocation.width() / 2f,
+                midY + (1f + margin) * requestedRatio * correctedLocation.height() / 2f
+            )
+        }
+    }
+
     companion object {
         private const val TAG = "CameraXBasic"
         private const val FILENAME = "yyyy-MM-dd-HH-mm-ss-SSS"
@@ -791,5 +1012,9 @@ class CameraXFragment : Fragment() {
         private const val SPRING_STIFFNESS_ALPHA_OUT = 100f
         private const val SPRING_STIFFNESS = 800f
         private const val SPRING_DAMPING_RATIO = 0.35f
+
+        private const val ACCURACY_THRESHOLD = 0.5f
+        private const val MODEL_PATH = "coco_ssd_mobilenet_v1_1.0_quant.tflite"
+        private const val LABELS_PATH = "coco_ssd_mobilenet_v1_1.0_labels.txt"
     }
 }
